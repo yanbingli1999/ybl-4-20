@@ -549,17 +549,29 @@ async function loadHistory() {
     }
 
     historyList.innerHTML = history.map(h => {
-      const hasWeight = h.weights && Array.isArray(h.weights) &&
-        h.weights.some(w => Math.abs(Number(w) - 1) > 1e-9 || Number(w) <= 0);
+      let hasWeight = false;
+      if (typeof h.hasEffectiveWeights === 'boolean') {
+        hasWeight = h.hasEffectiveWeights;
+      } else {
+        const weightsArr = Array.isArray(h.weights) ? h.weights : null;
+        hasWeight = !!(weightsArr && weightsArr.length > 0 &&
+          weightsArr.some(w => {
+            const n = Number(w);
+            return !isNaN(n) && Math.abs(n - 1) > 1e-9;
+          }));
+      }
       const wBadge = hasWeight ? '<span class="history-weight-badge">⚖带权重</span>' : '';
-      const uwR2 = h.unweighted?.metrics?.rSquared ?? h.metrics?.rSquared ?? 0;
-      const wR2 = h.weighted?.metrics?.rSquared ?? h.metrics?.rSquared ?? 0;
+      const uwR2 = h.unweighted?.metrics?.rSquared ?? h.metrics?.rSquared ?? null;
+      const wR2 = h.weighted?.metrics?.rSquared ?? h.metrics?.rSquared ?? null;
+      const r2Text = (uwR2 !== null && wR2 !== null)
+        ? `R²普=${uwR2.toFixed(3)} / R²加=${wR2.toFixed(3)}`
+        : (uwR2 !== null ? `R²=${uwR2.toFixed(3)}` : '');
       return `
       <div class="history-item" data-id="${h.id}">
         <div class="history-title">${h.datasetName}${wBadge}</div>
         <span class="history-model">${modelTypeLabels[h.modelType] || h.modelType}</span>
         <div class="history-meta">
-          <span>${h.pointsCount} 个点 · R²普=${uwR2.toFixed(3)} / R²加=${wR2.toFixed(3)}</span>
+          <span>${h.pointsCount} 个点${r2Text ? ' · ' + r2Text : ''}</span>
           <span>${new Date(h.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
         </div>
         <div class="history-actions">
@@ -619,8 +631,12 @@ async function loadDatasets() {
     }
 
     datasetsList.innerHTML = datasets.map(d => {
-      const hasWeight = d.weights && Array.isArray(d.weights) &&
-        d.weights.some(w => Math.abs(Number(w) - 1) > 1e-9 || Number(w) <= 0);
+      const weightsArr = Array.isArray(d.weights) ? d.weights : null;
+      const hasWeight = !!(weightsArr && weightsArr.length > 0 &&
+        weightsArr.some(w => {
+          const n = Number(w);
+          return !isNaN(n) && Math.abs(n - 1) > 1e-9;
+        }));
       const wBadge = hasWeight ? '<span class="history-weight-badge">⚖带权重</span>' : '';
       return `
       <div class="dataset-item" data-id="${d.id}">

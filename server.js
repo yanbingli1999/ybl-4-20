@@ -45,6 +45,142 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
 }
 
+function sanitizeAndNormalizePoints(points) {
+  if (!Array.isArray(points)) return [];
+  const parsed = points
+    .map(p => {
+      if (!p || typeof p !== 'object') return null;
+      let x = p.x, y = p.y;
+      if (typeof x === 'string') x = x.trim();
+      if (typeof y === 'string') y = y.trim();
+      const nx = Number(x);
+      const ny = Number(y);
+      if (isNaN(nx) || isNaN(ny)) return null;
+      if (!isFinite(nx) || !isFinite(ny)) return null;
+      return { x: nx, y: ny };
+    })
+    .filter(Boolean);
+
+  if (parsed.length >= 4) {
+    const ys = parsed.map(p => p.y).sort((a, b) => a - b);
+    const q1 = ys[Math.floor(ys.length * 0.25)];
+    const q3 = ys[Math.floor(ys.length * 0.75)];
+    const iqr = q3 - q1;
+    const lower = q1 - 10 * iqr;
+    const upper = q3 + 10 * iqr;
+    const filtered = parsed.filter(p => p.y >= lower && p.y <= upper);
+    if (filtered.length !== parsed.length) {
+      console.log(`[数据清洗] 过滤 ${parsed.length - filtered.length} 个极端异常Y值点 (IQR×10 范围外)`);
+      return filtered;
+    }
+  }
+  return parsed;
+}
+
+function sanitizeAndNormalizeWeights(weights, pointsLen) {
+  if (!Array.isArray(weights) || weights.length !== pointsLen) {
+    return null;
+  }
+  const normalized = weights.map(w => {
+    const n = Number(w);
+    if (isNaN(n) || !isFinite(n) || n < 0) return 1;
+    return n;
+  });
+  const allOne = normalized.every(v => Math.abs(v - 1) < 1e-9);
+  return allOne ? null : normalized;
+}
+
+function sanitizeStoredData() {
+  try {
+    const datasets = readJsonFile(DATASETS_FILE);
+    if (Array.isArray(datasets) && datasets.length > 0) {
+      let changed = false;
+      const cleanDatasets = datasets.map(d => {
+        if (!d || typeof d !== 'object') { changed = true; return null; }
+        const cleanPoints = sanitizeAndNormalizePoints(d.points);
+        if (cleanPoints.length !== (Array.isArray(d.points) ? d.points.length : 0)) {
+          changed = true;
+        }
+        const cleanWeights = sanitizeAndNormalizeWeights(d.weights, cleanPoints.length);
+        if ((cleanWeights === null) !== (d.weights === null || d.weights === undefined)) {
+          changed = true;
+        }
+        return {
+          id: d.id || generateId(),
+          name: typeof d.name === 'string' && d.name.trim() ? d.name : '未命名数据集',
+          points: cleanPoints,
+          weights: cleanWeights,
+          createdAt: d.createdAt || new Date().toISOString(),
+          updatedAt: d.updatedAt || undefined
+        };
+      }).filter(Boolean);
+      if (changed || cleanDatasets.length !== datasets.length) {
+        writeJsonFile(DATASETS_FILE, cleanDatasets);
+        console.log(`[数据清洗] 数据集已清理：${datasets.length} → ${cleanDatasets.length}`);
+      }
+    }
+
+    const history = readJsonFile(HISTORY_FILE);
+    if (Array.isArray(history) && history.length > 0) {
+      let changed = false;
+      const cleanHistory = history.map(h => {
+        if (!h || typeof h !== 'object') { changed = true; return null; }
+        const cleanPoints = sanitizeAndNormalizePoints(h.points);
+        if (cleanPoints.length !== (Array.isArray(h.points) ? h.points.length : 0)) {
+          changed = true;
+        }
+        const cleanWeights = sanitizeAndNormalizeWeights(h.weights, cleanPoints.length);
+        if ((cleanWeights === null) !== (h.weights === null || h.weights === undefined)) {
+          changed = true;
+        }
+        const unweighted = h.unweighted && typeof h.unweighted === 'object' ? h.unweighted : null;
+        const weighted = h.weighted && typeof h.weighted === 'object' ? h.weighted : null;
+        if (!unweighted || !weighted) {
+          changed = true;
+        }
+        return {
+          id: h.id || generateId(),
+          datasetId: h.datasetId || null,
+          datasetName: typeof h.datasetName === 'string' && h.datasetName.trim() ? h.datasetName : '未命名数据集',
+          modelType: h.modelType || 'linear',
+          points: cleanPoints,
+          weights: cleanWeights,
+          params: h.params || null,
+          modelEquation: h.modelEquation || '',
+          metrics: h.metrics || null,
+          residuals: Array.isArray(h.residuals) ? h.residuals : [],
+          outliers: Array.isArray(h.outliers) ? h.outliers : [],
+          curvePoints: Array.isArray(h.curvePoints) ? h.curvePoints : [],
+          unweighted: unweighted || {
+            params: h.params || null,
+            modelEquation: h.modelEquation || '',
+            metrics: h.metrics || null,
+            residuals: Array.isArray(h.residuals) ? h.residuals : [],
+            outliers: Array.isArray(h.outliers) ? h.outliers : [],
+            curvePoints: Array.isArray(h.curvePoints) ? h.curvePoints : []
+          },
+          weighted: weighted || {
+            params: h.params || null,
+            modelEquation: h.modelEquation || '',
+            metrics: h.metrics || null,
+            residuals: Array.isArray(h.residuals) ? h.residuals : [],
+            outliers: Array.isArray(h.outliers) ? h.outliers : [],
+            curvePoints: Array.isArray(h.curvePoints) ? h.curvePoints : []
+          },
+          createdAt: h.createdAt || new Date().toISOString()
+        };
+      }).filter(Boolean);
+      if (changed || cleanHistory.length !== history.length) {
+        writeJsonFile(HISTORY_FILE, cleanHistory);
+        console.log(`[数据清洗] 历史记录已清理：${history.length} → ${cleanHistory.length}`);
+      }
+    }
+  } catch (e) {
+    console.error('[数据清洗] 失败:', e.message);
+  }
+}
+sanitizeStoredData();
+
 function linearRegression(points) {
   const n = points.length;
   let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
@@ -88,7 +224,7 @@ function quadraticRegression(points) {
     const result = x.toArray();
     return { a: result[0], b: result[1], c: result[2] };
   } catch (e) {
-    return { a: 0, b: 0, c: 0 };
+    throw new Error('二次曲线拟合失败：系数矩阵奇异，数据可能共线或点不足');
   }
 }
 
@@ -154,7 +290,7 @@ function weightedQuadraticRegression(points, weights) {
     const result = x.toArray();
     return { a: result[0], b: result[1], c: result[2] };
   } catch (e) {
-    return { a: 0, b: 0, c: 0 };
+    throw new Error('加权二次曲线拟合失败：系数矩阵奇异，数据可能共线或权重配置异常');
   }
 }
 
@@ -472,16 +608,36 @@ app.post('/api/fit', (req, res) => {
 
 app.get('/api/history', (req, res) => {
   const history = readJsonFile(HISTORY_FILE);
-  const summaries = history.map(h => ({
-    id: h.id,
-    datasetId: h.datasetId,
-    datasetName: h.datasetName,
-    modelType: h.modelType,
-    modelEquation: h.modelEquation,
-    metrics: h.metrics,
-    pointsCount: h.points.length,
-    createdAt: h.createdAt
-  }));
+  const summaries = history.map(h => {
+    const uw = h.unweighted || { metrics: h.metrics, modelEquation: h.modelEquation };
+    const ww = h.weighted || { metrics: h.metrics, modelEquation: h.modelEquation };
+    const weightsArr = Array.isArray(h.weights) ? h.weights : null;
+    const hasEffectiveWeights = weightsArr && weightsArr.length > 0 &&
+      weightsArr.some(w => {
+        const n = Number(w);
+        return !isNaN(n) && Math.abs(n - 1) > 1e-9;
+      });
+    return {
+      id: h.id,
+      datasetId: h.datasetId,
+      datasetName: h.datasetName,
+      modelType: h.modelType,
+      modelEquation: h.modelEquation,
+      metrics: h.metrics,
+      unweighted: {
+        metrics: uw.metrics,
+        modelEquation: uw.modelEquation
+      },
+      weighted: {
+        metrics: ww.metrics,
+        modelEquation: ww.modelEquation
+      },
+      weights: weightsArr,
+      hasEffectiveWeights: !!hasEffectiveWeights,
+      pointsCount: h.points.length,
+      createdAt: h.createdAt
+    };
+  });
   res.json(summaries);
 });
 

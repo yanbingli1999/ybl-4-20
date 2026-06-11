@@ -4,8 +4,8 @@
   "description": "实验曲线拟合台 - 科学计算Web工具",
   "main": "server.js",
   "scripts": {
-    "start": "set PORT=5421&& node server.js",
-    "dev": "set PORT=5421&& node server.js"
+    "start": "set PORT=5422&& node server.js",
+    "dev": "set PORT=5422&& node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
