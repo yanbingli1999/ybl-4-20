@@ -175,10 +175,40 @@ body {
 }
 
 .data-table-wrapper {
-  max-height: 280px;
+  max-height: 260px;
   overflow-y: auto;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
+}
+
+.weight-toolbar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.btn-tiny {
+  padding: 4px 10px;
+  font-size: 11px;
+  border-radius: 6px;
+}
+
+.weight-hint {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-left: 4px;
+}
+
+.data-table input.w-input {
+  background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+  border-color: #a7f3d0;
+}
+
+.data-table input.w-input:focus {
+  border-color: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.15);
 }
 
 .data-table {
@@ -302,50 +332,156 @@ body {
 .metrics-panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
-.metric-item {
-  display: flex;
-  justify-content: space-between;
+.metrics-compare-header {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  padding: 8px 10px;
+  background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  text-align: center;
+}
+
+.metric-col-title {
+  text-align: center;
+}
+
+.metric-col-title:first-child {
+  text-align: left;
+}
+
+.metric-col-title.metric-unweighted {
+  color: #ef4444;
+}
+
+.metric-col-title.metric-weighted {
+  color: #10b981;
+}
+
+.metric-compare-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
   align-items: center;
-  padding: 10px 14px;
+  padding: 9px 10px;
   background: linear-gradient(135deg, #f8fafc, #f1f5f9);
   border-radius: 8px;
 }
 
-.metric-label {
-  font-size: 13px;
+.metric-label-cell {
+  font-size: 12px;
   color: #475569;
+  font-weight: 500;
 }
 
-.metric-value {
-  font-size: 14px;
+.metric-value-cell {
+  font-size: 13px;
   font-weight: 700;
   color: #1e293b;
   font-family: 'Cambria Math', 'Consolas', monospace;
+  text-align: center;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.metric-value-cell.metric-weighted {
+  color: #059669;
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.metric-diff-row {
+  margin-top: 4px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  border-radius: 10px;
+  border: 1px solid #fcd34d;
+}
+
+.diff-header {
+  font-size: 12px;
+  font-weight: 700;
+  color: #92400e;
+  margin-bottom: 6px;
+}
+
+.diff-content {
+  display: flex;
+  justify-content: space-around;
+  font-size: 12px;
+  color: #78350f;
+}
+
+.diff-improved {
+  color: #059669;
+  font-weight: 700;
+}
+
+.diff-worsened {
+  color: #dc2626;
+  font-weight: 700;
 }
 
 .equation-display {
-  padding: 14px;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  padding: 12px;
   border-radius: 10px;
   color: white;
   margin-top: 6px;
 }
 
+.equation-unweighted {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+
+.equation-weighted {
+  background: linear-gradient(135deg, #10b981, #059669);
+}
+
 .eq-label {
-  font-size: 12px;
-  opacity: 0.9;
+  font-size: 11px;
+  opacity: 0.92;
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: 5px;
+  font-weight: 500;
 }
 
 .eq-formula {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   font-family: 'Cambria Math', 'Times New Roman', serif;
   word-break: break-all;
+  line-height: 1.4;
+}
+
+.weight-summary {
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  border-radius: 8px;
+  border: 1px solid #bfdbfe;
+  font-size: 11px;
+  color: #1e40af;
+}
+
+.ws-label {
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.history-weight-badge {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 6px;
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+  border-radius: 4px;
+  margin-left: 4px;
+  font-weight: 500;
 }
 
 .charts-container {

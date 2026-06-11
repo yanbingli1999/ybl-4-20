@@ -92,6 +92,137 @@ function quadraticRegression(points) {
   }
 }
 
+function weightedLinearRegression(points, weights) {
+  const n = points.length;
+  let sumW = 0, sumWX = 0, sumWY = 0, sumWXY = 0, sumWXX = 0;
+  for (let i = 0; i < n; i++) {
+    const w = weights[i] > 0 ? weights[i] : 0;
+    const p = points[i];
+    sumW += w;
+    sumWX += w * p.x;
+    sumWY += w * p.y;
+    sumWXY += w * p.x * p.y;
+    sumWXX += w * p.x * p.x;
+  }
+  if (sumW <= 0) {
+    return linearRegression(points);
+  }
+  const denom = sumW * sumWXX - sumWX * sumWX;
+  if (Math.abs(denom) < 1e-15) {
+    return linearRegression(points);
+  }
+  const slope = (sumW * sumWXY - sumWX * sumWY) / denom;
+  const intercept = (sumWY - slope * sumWX) / sumW;
+  return { a: slope, b: intercept };
+}
+
+function weightedExponentialRegression(points, weights) {
+  const invalidPoints = points.filter(p => p.y <= 0);
+  if (invalidPoints.length > 0) {
+    const indices = invalidPoints.map((_, i) => {
+      const idx = points.indexOf(invalidPoints[i]) + 1;
+      return `#${idx}(y=${invalidPoints[i].y})`;
+    }).join(', ');
+    throw new Error(`指数拟合要求所有Y值必须大于0，存在非法点: ${indices}`);
+  }
+  const n = points.length;
+  const logPoints = points.map(p => ({ x: p.x, y: Math.log(p.y) }));
+  const linearResult = weightedLinearRegression(logPoints, weights);
+  return { a: Math.exp(linearResult.b), b: linearResult.a };
+}
+
+function weightedQuadraticRegression(points, weights) {
+  const n = points.length;
+  const hasEffectiveWeight = weights.some(w => w > 0);
+  if (!hasEffectiveWeight) {
+    return quadraticRegression(points);
+  }
+  const sqrtWeights = weights.map(w => Math.sqrt(Math.max(w, 0)));
+  const rows = points.map((p, i) => [
+    sqrtWeights[i] * p.x * p.x,
+    sqrtWeights[i] * p.x,
+    sqrtWeights[i]
+  ]);
+  const A = math.matrix(rows);
+  const b = math.matrix(points.map((p, i) => sqrtWeights[i] * p.y));
+  const AT = math.transpose(A);
+  const ATA = math.multiply(AT, A);
+  const ATb = math.multiply(AT, b);
+  try {
+    const ATAInv = math.inv(ATA);
+    const x = math.multiply(ATAInv, ATb);
+    const result = x.toArray();
+    return { a: result[0], b: result[1], c: result[2] };
+  } catch (e) {
+    return { a: 0, b: 0, c: 0 };
+  }
+}
+
+function calculateWeightedMetrics(points, weights, modelType, params) {
+  const n = points.length;
+  let yMean = 0;
+  let totalW = 0;
+  for (let i = 0; i < n; i++) {
+    const w = weights[i] > 0 ? weights[i] : 0;
+    yMean += w * points[i].y;
+    totalW += w;
+  }
+  if (totalW > 0) {
+    yMean /= totalW;
+  } else {
+    points.forEach(p => yMean += p.y);
+    yMean /= n;
+  }
+
+  let ssTotal = 0;
+  let ssResidual = 0;
+  const residuals = [];
+  let maeSum = 0;
+  let rmseSum = 0;
+  let effectiveCount = 0;
+
+  for (let i = 0; i < n; i++) {
+    const p = points[i];
+    const w = weights[i] > 0 ? weights[i] : 0;
+    let predicted;
+    switch (modelType) {
+      case 'linear':
+        predicted = params.a * p.x + params.b;
+        break;
+      case 'exponential':
+        predicted = params.a * Math.exp(params.b * p.x);
+        break;
+      case 'quadratic':
+        predicted = params.a * p.x * p.x + params.b * p.x + params.c;
+        break;
+    }
+    const residual = p.y - predicted;
+    residuals.push(residual);
+    ssResidual += w * residual * residual;
+    ssTotal += w * (p.y - yMean) * (p.y - yMean);
+    maeSum += w * Math.abs(residual);
+    rmseSum += w * residual * residual;
+    if (w > 0) effectiveCount += w;
+  }
+
+  const denom = totalW > 0 ? totalW : n;
+  const effDenom = effectiveCount > 0 ? effectiveCount : n;
+
+  const rSquared = ssTotal > 0 ? 1 - (ssResidual / ssTotal) : 0;
+  const mse = ssResidual / denom;
+  const rmse = Math.sqrt(rmseSum / denom);
+  const mae = maeSum / effDenom;
+
+  const residualStd = math.std(residuals);
+
+  const outliers = residuals.map((r, i) => {
+    const zScore = Math.abs(r - math.mean(residuals)) / (residualStd || 1);
+    return { index: i, isOutlier: zScore > 2, zScore: zScore, residual: r };
+  });
+
+  return { rSquared, mse, rmse, mae, residuals, outliers };
+}
+
 function calculateMetrics(points, modelType, params) {
   const n = points.length;
   let yMean = 0;
@@ -174,7 +305,7 @@ app.get('/api/datasets', (req, res) => {
 });
 
 app.post('/api/datasets', (req, res) => {
-  const { name, points } = req.body;
+  const { name, points, weights } = req.body;
   if (!name || !points || !Array.isArray(points)) {
     return res.status(400).json({ error: '缺少必要参数' });
   }
@@ -183,6 +314,7 @@ app.post('/api/datasets', (req, res) => {
     id: generateId(),
     name,
     points,
+    weights: weights || null,
     createdAt: new Date().toISOString()
   };
   datasets.push(dataset);
@@ -192,7 +324,7 @@ app.post('/api/datasets', (req, res) => {
 
 app.put('/api/datasets/:id', (req, res) => {
   const { id } = req.params;
-  const { name, points } = req.body;
+  const { name, points, weights } = req.body;
   const datasets = readJsonFile(DATASETS_FILE);
   const index = datasets.findIndex(d => d.id === id);
   if (index === -1) {
@@ -200,6 +332,9 @@ app.put('/api/datasets/:id', (req, res) => {
   }
   datasets[index].name = name || datasets[index].name;
   datasets[index].points = points || datasets[index].points;
+  if (weights !== undefined) {
+    datasets[index].weights = weights;
+  }
   datasets[index].updatedAt = new Date().toISOString();
   writeJsonFile(DATASETS_FILE, datasets);
   res.json(datasets[index]);
@@ -218,7 +353,7 @@ app.delete('/api/datasets/:id', (req, res) => {
 });
 
 app.post('/api/fit', (req, res) => {
-  const { datasetId, points, modelType, datasetName } = req.body;
+  const { datasetId, points, weights: rawWeights, modelType, datasetName } = req.body;
   if (!points || !Array.isArray(points) || points.length < 2) {
     return res.status(400).json({ error: '至少需要2个数据点' });
   }
@@ -226,50 +361,102 @@ app.post('/api/fit', (req, res) => {
     return res.status(400).json({ error: '请选择拟合模型' });
   }
 
-  let params;
-  let modelEquation;
+  const weights = (rawWeights && Array.isArray(rawWeights) && rawWeights.length === points.length)
+    ? rawWeights.map(w => {
+        const num = parseFloat(w);
+        return (!isNaN(num) && num >= 0) ? num : 1;
+      })
+    : points.map(() => 1);
+
+  function buildEquation(modelType, params) {
+    switch (modelType) {
+      case 'linear':
+        return `y = ${params.a.toFixed(6)}x + ${params.b.toFixed(6)}`;
+      case 'exponential':
+        return `y = ${params.a.toFixed(6)} · e^(${params.b.toFixed(6)}x)`;
+      case 'quadratic':
+        return `y = ${params.a.toFixed(6)}x² + ${params.b.toFixed(6)}x + ${params.c.toFixed(6)}`;
+      default:
+        return '';
+    }
+  }
+
+  let unweightedParams, weightedParams;
+  let unweightedEquation, weightedEquation;
 
   try {
     switch (modelType) {
       case 'linear':
-        params = linearRegression(points);
-        modelEquation = `y = ${params.a.toFixed(6)}x + ${params.b.toFixed(6)}`;
+        unweightedParams = linearRegression(points);
+        weightedParams = weightedLinearRegression(points, weights);
         break;
       case 'exponential':
-        params = exponentialRegression(points);
-        modelEquation = `y = ${params.a.toFixed(6)} · e^(${params.b.toFixed(6)}x)`;
+        unweightedParams = exponentialRegression(points);
+        weightedParams = weightedExponentialRegression(points, weights);
         break;
       case 'quadratic':
-        params = quadraticRegression(points);
-        modelEquation = `y = ${params.a.toFixed(6)}x² + ${params.b.toFixed(6)}x + ${params.c.toFixed(6)}`;
+        unweightedParams = quadraticRegression(points);
+        weightedParams = weightedQuadraticRegression(points, weights);
         break;
       default:
         return res.status(400).json({ error: '不支持的模型类型' });
     }
+    unweightedEquation = buildEquation(modelType, unweightedParams);
+    weightedEquation = buildEquation(modelType, weightedParams);
   } catch (e) {
     return res.status(400).json({ error: '拟合计算失败: ' + e.message });
   }
 
-  const metrics = calculateMetrics(points, modelType, params);
-  const curvePoints = generateCurvePoints(points, modelType, params);
+  const unweightedMetrics = calculateMetrics(points, modelType, unweightedParams);
+  const weightedMetrics = calculateWeightedMetrics(points, weights, modelType, weightedParams);
+
+  const unweightedCurvePoints = generateCurvePoints(points, modelType, unweightedParams);
+  const weightedCurvePoints = generateCurvePoints(points, modelType, weightedParams);
 
   const result = {
     id: generateId(),
     datasetId: datasetId || null,
     datasetName: datasetName || '未命名数据集',
     modelType,
-    params,
-    modelEquation,
-    metrics: {
-      rSquared: metrics.rSquared,
-      mse: metrics.mse,
-      rmse: metrics.rmse,
-      mae: metrics.mae
-    },
-    residuals: metrics.residuals,
-    outliers: metrics.outliers,
-    curvePoints,
     points,
+    weights,
+    unweighted: {
+      params: unweightedParams,
+      modelEquation: unweightedEquation,
+      metrics: {
+        rSquared: unweightedMetrics.rSquared,
+        mse: unweightedMetrics.mse,
+        rmse: unweightedMetrics.rmse,
+        mae: unweightedMetrics.mae
+      },
+      residuals: unweightedMetrics.residuals,
+      outliers: unweightedMetrics.outliers,
+      curvePoints: unweightedCurvePoints
+    },
+    weighted: {
+      params: weightedParams,
+      modelEquation: weightedEquation,
+      metrics: {
+        rSquared: weightedMetrics.rSquared,
+        mse: weightedMetrics.mse,
+        rmse: weightedMetrics.rmse,
+        mae: weightedMetrics.mae
+      },
+      residuals: weightedMetrics.residuals,
+      outliers: weightedMetrics.outliers,
+      curvePoints: weightedCurvePoints
+    },
+    modelEquation: weightedEquation,
+    params: weightedParams,
+    metrics: {
+      rSquared: weightedMetrics.rSquared,
+      mse: weightedMetrics.mse,
+      rmse: weightedMetrics.rmse,
+      mae: weightedMetrics.mae
+    },
+    residuals: weightedMetrics.residuals,
+    outliers: weightedMetrics.outliers,
+    curvePoints: weightedCurvePoints,
     createdAt: new Date().toISOString()
   };
 

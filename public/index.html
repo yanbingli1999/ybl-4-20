@@ -26,14 +26,21 @@
             <button id="clearDataBtn" class="btn btn-secondary">🗑 清空</button>
             <button id="loadSampleBtn" class="btn btn-info">📚 示例数据</button>
           </div>
+          <div class="weight-toolbar">
+            <button id="weightAll1Btn" class="btn btn-secondary btn-tiny">⚖ 全设1</button>
+            <button id="weightAscBtn" class="btn btn-secondary btn-tiny">📈 递增权重</button>
+            <button id="weightDescBtn" class="btn btn-secondary btn-tiny">📉 递减权重</button>
+            <span class="weight-hint">权重大的点拟合影响更大</span>
+          </div>
           <div class="data-table-wrapper">
             <table id="dataTable" class="data-table">
               <thead>
                 <tr>
-                  <th style="width:50px">#</th>
+                  <th style="width:40px">#</th>
                   <th>X</th>
                   <th>Y</th>
-                  <th style="width:60px">操作</th>
+                  <th style="width:80px">权重W</th>
+                  <th style="width:50px">操作</th>
                 </tr>
               </thead>
               <tbody id="dataTableBody">
@@ -65,27 +72,51 @@
         </div>
 
         <div class="panel-section">
-          <h2>📊 误差指标</h2>
+          <h2>📊 误差指标 · 普通 vs 加权 对比</h2>
           <div id="metricsPanel" class="metrics-panel">
-            <div class="metric-item">
-              <span class="metric-label">R² 决定系数</span>
-              <span class="metric-value" id="metricR2">—</span>
+            <div class="metrics-compare-header">
+              <span class="metric-col-title">指标</span>
+              <span class="metric-col-title metric-unweighted">普通拟合</span>
+              <span class="metric-col-title metric-weighted">加权拟合</span>
             </div>
-            <div class="metric-item">
-              <span class="metric-label">MSE 均方误差</span>
-              <span class="metric-value" id="metricMSE">—</span>
+            <div class="metric-compare-row">
+              <span class="metric-label-cell">R² 决定系数</span>
+              <span class="metric-value-cell" id="metricR2_unweighted">—</span>
+              <span class="metric-value-cell metric-weighted" id="metricR2_weighted">—</span>
             </div>
-            <div class="metric-item">
-              <span class="metric-label">RMSE 均方根</span>
-              <span class="metric-value" id="metricRMSE">—</span>
+            <div class="metric-compare-row">
+              <span class="metric-label-cell">MSE 均方误差</span>
+              <span class="metric-value-cell" id="metricMSE_unweighted">—</span>
+              <span class="metric-value-cell metric-weighted" id="metricMSE_weighted">—</span>
             </div>
-            <div class="metric-item">
-              <span class="metric-label">MAE 平均绝对误差</span>
-              <span class="metric-value" id="metricMAE">—</span>
+            <div class="metric-compare-row">
+              <span class="metric-label-cell">RMSE 均方根</span>
+              <span class="metric-value-cell" id="metricRMSE_unweighted">—</span>
+              <span class="metric-value-cell metric-weighted" id="metricRMSE_weighted">—</span>
             </div>
-            <div class="equation-display" id="equationDisplay">
-              <span class="eq-label">拟合方程:</span>
-              <span class="eq-formula" id="eqFormula">等待拟合...</span>
+            <div class="metric-compare-row">
+              <span class="metric-label-cell">MAE 平均绝对误差</span>
+              <span class="metric-value-cell" id="metricMAE_unweighted">—</span>
+              <span class="metric-value-cell metric-weighted" id="metricMAE_weighted">—</span>
+            </div>
+            <div class="metric-diff-row" id="metricDiffRow" style="display:none;">
+              <div class="diff-header">📐 加权拟合改善度</div>
+              <div class="diff-content">
+                <span>R²变化: <b id="diffR2">—</b></span>
+                <span>RMSE变化: <b id="diffRMSE">—</b></span>
+              </div>
+            </div>
+            <div class="equation-display equation-unweighted">
+              <span class="eq-label">普通拟合方程:</span>
+              <span class="eq-formula" id="eqFormula_unweighted">等待拟合...</span>
+            </div>
+            <div class="equation-display equation-weighted">
+              <span class="eq-label">加权拟合方程:</span>
+              <span class="eq-formula" id="eqFormula_weighted">等待拟合...</span>
+            </div>
+            <div class="weight-summary" id="weightSummary" style="display:none;">
+              <span class="ws-label">权重统计:</span>
+              <span id="wsInfo"></span>
             </div>
           </div>
         </div>
@@ -95,10 +126,11 @@
         <div class="charts-container">
           <div class="chart-section">
             <div class="chart-header">
-              <h2>📊 拟合曲线</h2>
+              <h2>📊 拟合曲线（点大小=权重）</h2>
               <div class="legend-info">
                 <span class="legend-item"><span class="legend-color" style="background:#3b82f6"></span>原始数据</span>
-                <span class="legend-item"><span class="legend-color" style="background:#ef4444"></span>拟合曲线</span>
+                <span class="legend-item"><span class="legend-color" style="background:#ef4444"></span>普通拟合</span>
+                <span class="legend-item"><span class="legend-color" style="background:#10b981"></span>加权拟合</span>
                 <span class="legend-item"><span class="legend-color" style="background:#f59e0b"></span>异常点</span>
               </div>
             </div>

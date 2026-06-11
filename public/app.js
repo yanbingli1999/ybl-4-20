@@ -43,6 +43,12 @@ function clearDirty() {
   updateDatasetButtons();
 }
 
+function mapWeightToRadius(w, minR = 3, maxR = 15) {
+  const val = Math.max(0, parseFloat(w) || 0);
+  if (val <= 0) return 2;
+  return Math.min(maxR, Math.max(minR, minR + Math.sqrt(val) * 3));
+}
+
 function initCharts() {
   const fitCtx = document.getElementById('fitChart').getContext('2d');
   const residualCtx = document.getElementById('residualChart').getContext('2d');
@@ -55,28 +61,41 @@ function initCharts() {
           label: '原始数据',
           data: [],
           backgroundColor: '#3b82f6',
-          borderColor: '#3b82f6',
-          pointRadius: 7,
-          pointHoverRadius: 9,
+          borderColor: '#1d4ed8',
+          borderWidth: 1,
+          pointRadius: [],
+          pointHoverRadius: 10,
           showLine: false
         },
         {
-          label: '拟合曲线',
+          label: '普通拟合',
           data: [],
           borderColor: '#ef4444',
-          backgroundColor: 'rgba(239, 68, 68, 0.1)',
-          borderWidth: 3,
+          backgroundColor: 'rgba(239, 68, 68, 0.05)',
+          borderWidth: 2.5,
           pointRadius: 0,
           showLine: true,
           tension: 0.1,
           fill: false
         },
         {
+          label: '加权拟合',
+          data: [],
+          borderColor: '#10b981',
+          backgroundColor: 'rgba(16, 185, 129, 0.05)',
+          borderWidth: 3,
+          pointRadius: 0,
+          showLine: true,
+          tension: 0.1,
+          fill: false,
+          borderDash: []
+        },
+        {
           label: '异常点',
           data: [],
           backgroundColor: '#f59e0b',
           borderColor: '#d97706',
-          pointRadius: 9,
+          pointRadius: [],
           pointStyle: 'triangle',
           showLine: false
         }
@@ -95,9 +114,23 @@ function initCharts() {
           cornerRadius: 8,
           callbacks: {
             label: (context) => {
+              const di = context.datasetIndex;
+              if (di === 1 || di === 2) {
+                const x = context.parsed.x?.toFixed(4) || 0;
+                const y = context.parsed.y?.toFixed(4) || 0;
+                return `(${x}, ${y})`;
+              }
               const x = context.parsed.x?.toFixed(4) || 0;
               const y = context.parsed.y?.toFixed(4) || 0;
-              return `(${x}, ${y})`;
+              const wi = context.dataIndex;
+              const tbody = document.getElementById('dataTableBody');
+              const wInputs = tbody.querySelectorAll('.w-input');
+              let w = 1;
+              if (wInputs[wi]) {
+                const v = parseFloat(wInputs[wi].value);
+                w = isNaN(v) ? 1 : v;
+              }
+              return `(${x}, ${y}) · 权重=${w}`;
             }
           }
         }
@@ -124,18 +157,27 @@ function initCharts() {
     data: {
       datasets: [
         {
-          label: '残差',
+          label: '残差(加权)',
           data: [],
-          backgroundColor: '#8b5cf6',
-          borderColor: '#8b5cf6',
-          pointRadius: 6,
-          pointHoverRadius: 8,
+          backgroundColor: '#10b981',
+          borderColor: '#059669',
+          pointRadius: [],
+          pointHoverRadius: 9,
+          showLine: false
+        },
+        {
+          label: '残差(普通)',
+          data: [],
+          backgroundColor: 'rgba(239, 68, 68, 0.55)',
+          borderColor: '#ef4444',
+          pointRadius: [],
+          pointStyle: 'rectRot',
           showLine: false
         },
         {
           label: '零参考线',
           data: [],
-          borderColor: '#10b981',
+          borderColor: '#64748b',
           borderWidth: 2,
           borderDash: [8, 4],
           pointRadius: 0,
@@ -157,12 +199,11 @@ function initCharts() {
           cornerRadius: 8,
           callbacks: {
             label: (context) => {
-              if (context.datasetIndex === 0) {
-                const x = context.parsed.x?.toFixed(4) || 0;
-                const y = context.parsed.y?.toFixed(6) || 0;
-                return `x=${x}, 残差=${y}`;
-              }
-              return '';
+              if (context.datasetIndex === 2) return '';
+              const name = context.dataset.label;
+              const x = context.parsed.x?.toFixed(4) || 0;
+              const y = context.parsed.y?.toFixed(6) || 0;
+              return `${name}: x=${x}, 残差=${y}`;
             }
           }
         }
@@ -185,14 +226,16 @@ function initCharts() {
   });
 }
 
-function addDataRow(x = '', y = '') {
+function addDataRow(x = '', y = '', w = 1) {
   const tbody = document.getElementById('dataTableBody');
   const rowIndex = tbody.children.length + 1;
+  const wVal = (w === '' || w === null || w === undefined) ? 1 : w;
   const tr = document.createElement('tr');
   tr.innerHTML = `
     <td>${rowIndex}</td>
     <td><input type="number" step="any" class="x-input" value="${x}" placeholder="X"></td>
     <td><input type="number" step="any" class="y-input" value="${y}" placeholder="Y"></td>
+    <td><input type="number" step="any" min="0" class="w-input" value="${wVal}" placeholder="W" title="测量权重，越大影响越大"></td>
     <td><button class="delete-row-btn" title="删除">✕</button></td>
   `;
   tr.querySelector('.delete-row-btn').addEventListener('click', () => {
@@ -226,19 +269,28 @@ function clearDataTable() {
 }
 
 function resetDisplay() {
-  document.getElementById('metricR2').textContent = '—';
-  document.getElementById('metricMSE').textContent = '—';
-  document.getElementById('metricRMSE').textContent = '—';
-  document.getElementById('metricMAE').textContent = '—';
-  document.getElementById('eqFormula').textContent = '等待拟合...';
+  ['R2', 'MSE', 'RMSE', 'MAE'].forEach(k => {
+    document.getElementById('metric' + k + '_unweighted').textContent = '—';
+    document.getElementById('metric' + k + '_weighted').textContent = '—';
+  });
+  document.getElementById('eqFormula_unweighted').textContent = '等待拟合...';
+  document.getElementById('eqFormula_weighted').textContent = '等待拟合...';
+  document.getElementById('metricDiffRow').style.display = 'none';
+  document.getElementById('weightSummary').style.display = 'none';
   document.getElementById('outliersSection').style.display = 'none';
 
   if (fitChart) {
-    fitChart.data.datasets.forEach(ds => ds.data = []);
+    fitChart.data.datasets.forEach(ds => {
+      ds.data = [];
+      if (ds.pointRadius) ds.pointRadius = [];
+    });
     fitChart.update();
   }
   if (residualChart) {
-    residualChart.data.datasets.forEach(ds => ds.data = []);
+    residualChart.data.datasets.forEach(ds => {
+      ds.data = [];
+      if (ds.pointRadius) ds.pointRadius = [];
+    });
     residualChart.update();
   }
 }
@@ -246,23 +298,29 @@ function resetDisplay() {
 function getTableData() {
   const tbody = document.getElementById('dataTableBody');
   const points = [];
+  const weights = [];
   Array.from(tbody.children).forEach(tr => {
     const xInput = tr.querySelector('.x-input');
     const yInput = tr.querySelector('.y-input');
+    const wInput = tr.querySelector('.w-input');
     const x = parseFloat(xInput.value);
     const y = parseFloat(yInput.value);
+    let w = parseFloat(wInput.value);
+    if (isNaN(w) || w < 0) w = 1;
     if (!isNaN(x) && !isNaN(y)) {
       points.push({ x, y });
+      weights.push(w);
     }
   });
-  return points;
+  return { points, weights };
 }
 
-function setTableData(points) {
+function setTableData(points, weights) {
   const tbody = document.getElementById('dataTableBody');
   tbody.innerHTML = '';
-  points.forEach(p => {
-    addDataRow(p.x, p.y);
+  points.forEach((p, i) => {
+    const w = (weights && weights[i] !== undefined) ? weights[i] : 1;
+    addDataRow(p.x, p.y, w);
   });
 }
 
@@ -279,17 +337,48 @@ function loadSampleData() {
     { x: 9, y: 18.2 },
     { x: 10, y: 20.1 }
   ];
-  setTableData(samples);
+  const sampleWeights = [5, 5, 4, 4, 3, 3, 2, 1, 3, 4];
+  setTableData(samples, sampleWeights);
   document.getElementById('datasetName').value = '示例实验数据';
   currentDatasetId = null;
   currentResultId = null;
   resetDisplay();
   clearDirty();
-  showToast('已加载示例数据', 'success');
+  showToast('已加载示例数据（附权重）', 'success');
+}
+
+function setAllWeights(value) {
+  const tbody = document.getElementById('dataTableBody');
+  tbody.querySelectorAll('.w-input').forEach(inp => {
+    inp.value = value;
+  });
+  markDirty();
+}
+
+function setAscWeights() {
+  const tbody = document.getElementById('dataTableBody');
+  const rows = tbody.querySelectorAll('tr');
+  const n = rows.length;
+  rows.forEach((tr, i) => {
+    const wInput = tr.querySelector('.w-input');
+    if (wInput) wInput.value = (i + 1);
+  });
+  markDirty();
+}
+
+function setDescWeights() {
+  const tbody = document.getElementById('dataTableBody');
+  const rows = tbody.querySelectorAll('tr');
+  const n = rows.length;
+  rows.forEach((tr, i) => {
+    const wInput = tr.querySelector('.w-input');
+    if (wInput) wInput.value = (n - i);
+  });
+  markDirty();
 }
 
 async function performFit() {
-  const points = getTableData();
+  const { points, weights } = getTableData();
   if (points.length < 2) {
     showToast('请至少输入2个有效数据点', 'error');
     return;
@@ -307,12 +396,12 @@ async function performFit() {
     const res = await fetch('/api/fit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ points, modelType, datasetName, datasetId: currentDatasetId })
+      body: JSON.stringify({ points, weights, modelType, datasetName, datasetId: currentDatasetId })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || '拟合失败');
 
-    displayFitResult(data);
+    displayFitResult(data, weights);
     currentResultId = data.id;
     showToast('拟合完成！', 'success');
     loadHistory();
@@ -324,36 +413,94 @@ async function performFit() {
   }
 }
 
-function displayFitResult(result) {
-  document.getElementById('metricR2').textContent = result.metrics.rSquared.toFixed(6);
-  document.getElementById('metricMSE').textContent = result.metrics.mse.toFixed(6);
-  document.getElementById('metricRMSE').textContent = result.metrics.rmse.toFixed(6);
-  document.getElementById('metricMAE').textContent = result.metrics.mae.toFixed(6);
-  document.getElementById('eqFormula').textContent = result.modelEquation;
+function displayFitResult(result, weights) {
+  const unweighted = result.unweighted || { metrics: result.metrics, modelEquation: result.modelEquation };
+  const weighted = result.weighted || { metrics: result.metrics, modelEquation: result.modelEquation };
+
+  const uw = unweighted.metrics;
+  const ww = weighted.metrics;
+
+  document.getElementById('metricR2_unweighted').textContent = uw.rSquared.toFixed(6);
+  document.getElementById('metricMSE_unweighted').textContent = uw.mse.toFixed(6);
+  document.getElementById('metricRMSE_unweighted').textContent = uw.rmse.toFixed(6);
+  document.getElementById('metricMAE_unweighted').textContent = uw.mae.toFixed(6);
+
+  document.getElementById('metricR2_weighted').textContent = ww.rSquared.toFixed(6);
+  document.getElementById('metricMSE_weighted').textContent = ww.mse.toFixed(6);
+  document.getElementById('metricRMSE_weighted').textContent = ww.rmse.toFixed(6);
+  document.getElementById('metricMAE_weighted').textContent = ww.mae.toFixed(6);
+
+  document.getElementById('eqFormula_unweighted').textContent = unweighted.modelEquation || '—';
+  document.getElementById('eqFormula_weighted').textContent = weighted.modelEquation || '—';
+
+  const r2Diff = ww.rSquared - uw.rSquared;
+  const rmseDiff = ww.rmse - uw.rmse;
+  const r2Pct = (r2Diff / Math.max(Math.abs(uw.rSquared), 1e-12)) * 100;
+  const rmsePct = (rmseDiff / Math.max(Math.abs(uw.rmse), 1e-12)) * 100;
+  const r2Sign = r2Diff >= 0 ? '+' : '';
+  const rmseSign = rmseDiff <= 0 ? '' : '+';
+
+  const diffR2El = document.getElementById('diffR2');
+  const diffRMSEEl = document.getElementById('diffRMSE');
+  diffR2El.textContent = `${r2Sign}${r2Diff.toFixed(6)} (${r2Sign}${r2Pct.toFixed(2)}%)`;
+  diffRMSEEl.textContent = `${rmseSign}${rmseDiff.toFixed(6)} (${rmseSign}${rmsePct.toFixed(2)}%)`;
+  diffR2El.className = r2Diff >= 0 ? 'diff-improved' : 'diff-worsened';
+  diffRMSEEl.className = rmseDiff <= 0 ? 'diff-improved' : 'diff-worsened';
+  document.getElementById('metricDiffRow').style.display = 'block';
+
+  const displayWeights = result.weights || weights;
+  if (displayWeights && displayWeights.length > 0) {
+    const wArr = displayWeights.map(v => Number(v)).filter(v => !isNaN(v));
+    const minW = Math.min(...wArr);
+    const maxW = Math.max(...wArr);
+    const sumW = wArr.reduce((a, b) => a + b, 0);
+    const avgW = sumW / wArr.length;
+    const nonUniform = wArr.some(v => Math.abs(v - wArr[0]) > 1e-9);
+    document.getElementById('wsInfo').textContent =
+      `共 ${wArr.length} 点 · 总和=${sumW.toFixed(2)} · 均值=${avgW.toFixed(2)} · 最小=${minW.toFixed(2)} · 最大=${maxW.toFixed(2)}${nonUniform ? ' · ⚡非均匀权重' : ' · 均匀权重'}`;
+    document.getElementById('weightSummary').style.display = 'block';
+  }
+
+  const points = result.points;
+  const currentWeights = displayWeights || points.map(() => 1);
+  const pointRadii = currentWeights.map(w => mapWeightToRadius(w, 4, 16));
 
   const normalPoints = [];
   const outlierPoints = [];
-  const outlierIndices = new Set(result.outliers.filter(o => o.isOutlier).map(o => o.index));
+  const normalRadii = [];
+  const outlierRadii = [];
 
-  result.points.forEach((p, i) => {
+  const usedOutliers = weighted.outliers || result.outliers || [];
+  const outlierIndices = new Set(usedOutliers.filter(o => o.isOutlier).map(o => o.index));
+
+  points.forEach((p, i) => {
     if (outlierIndices.has(i)) {
       outlierPoints.push(p);
+      outlierRadii.push(pointRadii[i] + 2);
     } else {
       normalPoints.push(p);
+      normalRadii.push(pointRadii[i]);
     }
   });
 
   fitChart.data.datasets[0].data = normalPoints;
-  fitChart.data.datasets[1].data = result.curvePoints;
-  fitChart.data.datasets[2].data = outlierPoints;
+  fitChart.data.datasets[0].pointRadius = normalRadii;
+  fitChart.data.datasets[1].data = (unweighted.curvePoints || []);
+  fitChart.data.datasets[2].data = (weighted.curvePoints || []);
+  fitChart.data.datasets[3].data = outlierPoints;
+  fitChart.data.datasets[3].pointRadius = outlierRadii;
   fitChart.update();
 
-  const residualData = result.points.map((p, i) => ({
+  const weightedResidualData = points.map((p, i) => ({
     x: p.x,
-    y: result.residuals[i]
+    y: (weighted.residuals || result.residuals)[i]
+  }));
+  const unweightedResidualData = points.map((p, i) => ({
+    x: p.x,
+    y: (unweighted.residuals || result.residuals)[i]
   }));
 
-  const xs = result.points.map(p => p.x);
+  const xs = points.map(p => p.x);
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
   const range = maxX - minX || 1;
@@ -362,22 +509,29 @@ function displayFitResult(result) {
     { x: maxX + range * 0.1, y: 0 }
   ];
 
-  residualChart.data.datasets[0].data = residualData;
-  residualChart.data.datasets[1].data = zeroLine;
+  residualChart.data.datasets[0].data = weightedResidualData;
+  residualChart.data.datasets[0].pointRadius = currentWeights.map(w => mapWeightToRadius(w, 3, 12));
+  residualChart.data.datasets[1].data = unweightedResidualData;
+  residualChart.data.datasets[1].pointRadius = currentWeights.map(w => mapWeightToRadius(w, 2, 9));
+  residualChart.data.datasets[2].data = zeroLine;
   residualChart.update();
 
   const outliersSection = document.getElementById('outliersSection');
   const outliersList = document.getElementById('outliersList');
-  const actualOutliers = result.outliers.filter(o => o.isOutlier);
+  const actualOutliers = usedOutliers.filter(o => o.isOutlier);
 
   if (actualOutliers.length > 0) {
     outliersSection.style.display = 'block';
-    outliersList.innerHTML = actualOutliers.map(o => `
-      <span class="outlier-badge">
-        #${o.index + 1} (x=${result.points[o.index].x.toFixed(3)}, y=${result.points[o.index].y.toFixed(3)})
-        Z=${o.zScore.toFixed(2)}
-      </span>
-    `).join('');
+    outliersList.innerHTML = actualOutliers.map(o => {
+      const p = points[o.index];
+      const wt = currentWeights[o.index] || 1;
+      return `
+        <span class="outlier-badge">
+          #${o.index + 1} (x=${p.x.toFixed(3)}, y=${p.y.toFixed(3)}, w=${wt})
+          Z=${o.zScore.toFixed(2)}
+        </span>
+      `;
+    }).join('');
   } else {
     outliersSection.style.display = 'none';
   }
@@ -394,12 +548,18 @@ async function loadHistory() {
       return;
     }
 
-    historyList.innerHTML = history.map(h => `
+    historyList.innerHTML = history.map(h => {
+      const hasWeight = h.weights && Array.isArray(h.weights) &&
+        h.weights.some(w => Math.abs(Number(w) - 1) > 1e-9 || Number(w) <= 0);
+      const wBadge = hasWeight ? '<span class="history-weight-badge">⚖带权重</span>' : '';
+      const uwR2 = h.unweighted?.metrics?.rSquared ?? h.metrics?.rSquared ?? 0;
+      const wR2 = h.weighted?.metrics?.rSquared ?? h.metrics?.rSquared ?? 0;
+      return `
       <div class="history-item" data-id="${h.id}">
-        <div class="history-title">${h.datasetName}</div>
+        <div class="history-title">${h.datasetName}${wBadge}</div>
         <span class="history-model">${modelTypeLabels[h.modelType] || h.modelType}</span>
         <div class="history-meta">
-          <span>${h.pointsCount} 个点 · R²=${h.metrics.rSquared.toFixed(4)}</span>
+          <span>${h.pointsCount} 个点 · R²普=${uwR2.toFixed(3)} / R²加=${wR2.toFixed(3)}</span>
           <span>${new Date(h.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
         </div>
         <div class="history-actions">
@@ -407,7 +567,7 @@ async function loadHistory() {
           <button class="btn-delete" onclick="deleteHistoryItem('${h.id}')">删除</button>
         </div>
       </div>
-    `).join('');
+    `}).join('');
   } catch (err) {
     console.error('加载历史失败:', err);
   }
@@ -421,12 +581,12 @@ async function loadHistoryItem(id) {
 
     document.getElementById('datasetName').value = data.datasetName;
     document.querySelector(`input[name="modelType"][value="${data.modelType}"]`).checked = true;
-    setTableData(data.points);
-    displayFitResult(data);
+    setTableData(data.points, data.weights);
+    displayFitResult(data, data.weights);
     currentResultId = id;
     currentDatasetId = data.datasetId || null;
     clearDirty();
-    showToast('已加载历史记录', 'success');
+    showToast('已加载历史记录（含权重）', 'success');
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -458,9 +618,13 @@ async function loadDatasets() {
       return;
     }
 
-    datasetsList.innerHTML = datasets.map(d => `
+    datasetsList.innerHTML = datasets.map(d => {
+      const hasWeight = d.weights && Array.isArray(d.weights) &&
+        d.weights.some(w => Math.abs(Number(w) - 1) > 1e-9 || Number(w) <= 0);
+      const wBadge = hasWeight ? '<span class="history-weight-badge">⚖带权重</span>' : '';
+      return `
       <div class="dataset-item" data-id="${d.id}">
-        <div class="history-title">${d.name}</div>
+        <div class="history-title">${d.name}${wBadge}</div>
         <div class="history-meta">
           <span>${d.points.length} 个点</span>
           <span>${new Date(d.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
@@ -470,14 +634,14 @@ async function loadDatasets() {
           <button class="btn-delete" onclick="deleteDataset('${d.id}')">删除</button>
         </div>
       </div>
-    `).join('');
+    `}).join('');
   } catch (err) {
     console.error('加载数据集失败:', err);
   }
 }
 
 async function saveCurrentDataset() {
-  const points = getTableData();
+  const { points, weights } = getTableData();
   const name = document.getElementById('datasetName').value || '未命名数据集';
 
   if (points.length < 2) {
@@ -489,13 +653,13 @@ async function saveCurrentDataset() {
     const res = await fetch('/api/datasets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, points })
+      body: JSON.stringify({ name, points, weights })
     });
     if (!res.ok) throw new Error('保存失败');
     const dataset = await res.json();
     currentDatasetId = dataset.id;
     clearDirty();
-    showToast('已另存为新数据集', 'success');
+    showToast('已另存为新数据集（含权重）', 'success');
     loadDatasets();
   } catch (err) {
     showToast(err.message, 'error');
@@ -508,7 +672,7 @@ async function updateCurrentDataset() {
     return;
   }
 
-  const points = getTableData();
+  const { points, weights } = getTableData();
   const name = document.getElementById('datasetName').value || '未命名数据集';
 
   if (points.length < 2) {
@@ -520,11 +684,11 @@ async function updateCurrentDataset() {
     const res = await fetch(`/api/datasets/${currentDatasetId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, points })
+      body: JSON.stringify({ name, points, weights })
     });
     if (!res.ok) throw new Error('更新失败');
     clearDirty();
-    showToast('数据集已更新', 'success');
+    showToast('数据集已更新（含权重）', 'success');
     loadDatasets();
   } catch (err) {
     showToast(err.message, 'error');
@@ -539,12 +703,12 @@ async function loadDataset(id) {
     if (!dataset) throw new Error('数据集不存在');
 
     document.getElementById('datasetName').value = dataset.name;
-    setTableData(dataset.points);
+    setTableData(dataset.points, dataset.weights);
     currentDatasetId = id;
     currentResultId = null;
     resetDisplay();
     clearDirty();
-    showToast('已加载数据集', 'success');
+    showToast(dataset.weights ? '已加载数据集（含权重）' : '已加载数据集', 'success');
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -587,6 +751,9 @@ function initEventListeners() {
     if (confirm('确定清空所有数据吗？')) clearDataTable();
   });
   document.getElementById('loadSampleBtn').addEventListener('click', loadSampleData);
+  document.getElementById('weightAll1Btn').addEventListener('click', () => setAllWeights(1));
+  document.getElementById('weightAscBtn').addEventListener('click', setAscWeights);
+  document.getElementById('weightDescBtn').addEventListener('click', setDescWeights);
   document.getElementById('fitBtn').addEventListener('click', performFit);
   document.getElementById('saveDatasetBtn').addEventListener('click', saveCurrentDataset);
   document.getElementById('updateDatasetBtn').addEventListener('click', updateCurrentDataset);
